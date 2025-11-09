@@ -119,7 +119,7 @@ export async function transformImage (this: Hexo) {
         const cacheImage = await fs.readFile(`./lightning-minify/images/${sourcePathHash}${transformedImageExt}`)
         this.route.set(transformedPath, cacheImage)
         image.cached = true
-        this.log.info(`Using cached image for ${image.path} (${cacheImage.length} bytes)`)
+        this.log.debug(`Using cached image for ${image.path} (${cacheImage.length} bytes)`)
         return
       } else {
         await cacheDB.setImageHash(sourcePathHash, sourceImageHash)
