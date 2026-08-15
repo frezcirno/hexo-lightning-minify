@@ -116,34 +116,38 @@ export async function transformImage (this: Hexo) {
       const cachedHash = cacheDB.getImageHash(sourcePathHash)
 
       if (cachedHash && cachedHash === sourceImageHash) {
-        const cacheImage = await fs.readFile(`./lightning-minify/images/${sourcePathHash}${transformedImageExt}`)
-        this.route.set(transformedPath, cacheImage)
-        image.cached = true
-        this.log.debug(`Using cached image for ${image.path} (${cacheImage.length} bytes)`)
-        return
-      } else {
-        await cacheDB.setImageHash(sourcePathHash, sourceImageHash)
+        try {
+          const cacheImage = await fs.readFile(`./lightning-minify/images/${sourcePathHash}${transformedImageExt}`)
+          this.route.set(transformedPath, cacheImage)
+          image.cached = true
+          this.log.debug(`Using cached image for ${image.path} (${cacheImage.length} bytes)`)
+          return
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+          this.log.debug(`Cached image for ${image.path} is missing; regenerating it`)
+        }
       }
     }
 
     if (!(await fs.access(transformedImagePath).catch(() => false))) {
       const sharpImage = sharp(sourceBuffer)
       const transformedSharp = options.webp ? sharpImage.webp(sharpWebpOptions) : sharpImage.avif(sharpAvifOptions)
-      transformedSharp.toBuffer()
-        .then(async info => {
-          this.route.set(transformedPath, info)
-          if (this.config.minify.image.options.destroyOldRoute) {
-            this.route.remove(image.path)
-          }
-          this.log.info(`Converted ${image.path} to ${transformedImageExt} (saved ${((sourceBuffer.length - info.length)/sourceBuffer.length * 100).toFixed(2)}%)`)
-          if (options.persistCache) {
-            const sourcePathHash = createHash('sha256').update(image.path).digest('hex')
-            await fs.writeFile(`./lightning-minify/images/${sourcePathHash}${transformedImageExt}`, info)
-          }
-        })
-        .catch((err) => {
-          this.log.error(`Error converting ${image.path} to ${transformedImageExt}:`, err)
-        })
+      try {
+        const info = await transformedSharp.toBuffer()
+        this.route.set(transformedPath, info)
+        if (this.config.minify.image.options.destroyOldRoute) {
+          this.route.remove(image.path)
+        }
+        this.log.info(`Converted ${image.path} to ${transformedImageExt} (saved ${((sourceBuffer.length - info.length)/sourceBuffer.length * 100).toFixed(2)}%)`)
+        if (options.persistCache) {
+          const sourcePathHash = createHash('sha256').update(image.path).digest('hex')
+          const sourceImageHash = createHash('sha256').update(sourceBuffer).digest('hex')
+          await fs.writeFile(`./lightning-minify/images/${sourcePathHash}${transformedImageExt}`, info)
+          await cacheDB.setImageHash(sourcePathHash, sourceImageHash)
+        }
+      } catch (err) {
+        this.log.error(`Error converting ${image.path} to ${transformedImageExt}:`, err)
+      }
     }
   }))
 
